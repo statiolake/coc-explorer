@@ -1,0 +1,94 @@
+{
+  "name": "@statiolake/coc-explorer",
+  "version": "0.0.0-development",
+  "description": "A lean filesystem explorer for coc.nvim view containers",
+  "author": "statiolake",
+  "license": "MIT",
+  "main": "lib/index.js",
+  "engines": {
+    "coc": "^0.0.82"
+  },
+  "extensionDependencies": [
+    "@statiolake/coc-ui"
+  ],
+  "activationEvents": [
+    "*"
+  ],
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "prepare": "node esbuild.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "coc-explorer.show",
+        "title": "Show Explorer"
+      },
+      {
+        "command": "coc-explorer.reveal",
+        "title": "Reveal Current File in Explorer"
+      },
+      {
+        "command": "coc-explorer.refresh",
+        "title": "Refresh Explorer"
+      },
+      {
+        "command": "coc-explorer.changeRoot",
+        "title": "Change Explorer Root"
+      },
+      {
+        "command": "coc-explorer.open",
+        "title": "Open Explorer Item"
+      },
+      {
+        "command": "coc-explorer.openSplit",
+        "title": "Open Explorer Item in Split"
+      },
+      {
+        "command": "coc-explorer.openVsplit",
+        "title": "Open Explorer Item in Vertical Split"
+      },
+      {
+        "command": "coc-explorer.runSystem",
+        "title": "Run System Command for Explorer Item"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "Coc Explorer",
+      "properties": {
+        "coc-explorer.root": {
+          "type": "string",
+          "default": ""
+        },
+        "coc-explorer.exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            ".git",
+            "node_modules",
+            ".mypy_cache",
+            "__pycache__",
+            "target"
+          ]
+        },
+        "coc-explorer.showHidden": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "@statiolake/coc-ui": "file:../coc-ui"
+  },
+  "devDependencies": {
+    "@types/node": "^16.18.0",
+    "coc.nvim": "^0.0.83-next.24",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.3.3"
+  }
+}
