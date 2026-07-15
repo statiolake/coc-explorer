@@ -42,6 +42,10 @@
         "title": "Open Explorer Item"
       },
       {
+        "command": "coc-explorer.toggle",
+        "title": "Expand or Collapse Explorer Item"
+      },
+      {
         "command": "coc-explorer.openSplit",
         "title": "Open Explorer Item in Split"
       },
@@ -52,6 +56,30 @@
       {
         "command": "coc-explorer.runSystem",
         "title": "Run System Command for Explorer Item"
+      },
+      {
+        "command": "coc-explorer.changeRootTo",
+        "title": "Set Explorer Root to Item"
+      },
+      {
+        "command": "coc-explorer.newFile",
+        "title": "Create File in Explorer"
+      },
+      {
+        "command": "coc-explorer.newFolder",
+        "title": "Create Folder in Explorer"
+      },
+      {
+        "command": "coc-explorer.rename",
+        "title": "Rename Explorer Item"
+      },
+      {
+        "command": "coc-explorer.delete",
+        "title": "Delete Explorer Item"
+      },
+      {
+        "command": "coc-explorer.copyPath",
+        "title": "Copy Explorer Item Path"
       }
     ],
     "configuration": {

@@ -8,6 +8,7 @@ import {
   ExtensionContext,
   extensions,
   TreeItem,
+  TreeItemAction,
   TreeItemCollapsibleState,
   TreeView,
   TreeDataProvider,
@@ -55,14 +56,47 @@ class ExplorerProvider implements TreeDataProvider<ExplorerNode>, Disposable {
     );
     item.id = node.path;
     item.tooltip = node.path;
-    if (!node.directory) {
-      item.command = {
-        command: "coc-explorer.open",
-        title: "Open",
-        arguments: [node],
-      };
-    }
+    item.command = {
+      command: node.directory ? "coc-explorer.toggle" : "coc-explorer.open",
+      title: node.directory ? "Expand or Collapse" : "Open",
+      arguments: [node],
+    };
     return item;
+  }
+
+  resolveActions(
+    _item: TreeItem,
+    node: ExplorerNode,
+  ): TreeItemAction<ExplorerNode>[] {
+    const action = (
+      title: string,
+      command: string,
+    ): TreeItemAction<ExplorerNode> => ({
+      title,
+      handler: () => commands.executeCommand(command, node),
+    });
+
+    const actions = node.directory
+      ? [
+          action("Expand / Collapse", "coc-explorer.toggle"),
+          action("Set as Root", "coc-explorer.changeRootTo"),
+          action("New File", "coc-explorer.newFile"),
+          action("New Folder", "coc-explorer.newFolder"),
+        ]
+      : [
+          action("Open", "coc-explorer.open"),
+          action("Open in Split", "coc-explorer.openSplit"),
+          action("Open in Vertical Split", "coc-explorer.openVsplit"),
+        ];
+
+    actions.push(
+      action("Rename", "coc-explorer.rename"),
+      action("Delete", "coc-explorer.delete"),
+      action("Copy Path", "coc-explorer.copyPath"),
+      action("Run System Command", "coc-explorer.runSystem"),
+      action("Refresh", "coc-explorer.refresh"),
+    );
+    return actions;
   }
 
   async getChildren(node?: ExplorerNode): Promise<ExplorerNode[]> {
@@ -150,6 +184,9 @@ class Explorer implements Disposable {
         this.changeRoot(),
       ),
       commands.registerCommand("coc-explorer.reveal", () => this.reveal()),
+      commands.registerCommand("coc-explorer.toggle", (node: ExplorerNode) =>
+        this.toggle(node),
+      ),
       commands.registerCommand("coc-explorer.open", (node: ExplorerNode) =>
         this.open(node),
       ),
@@ -162,6 +199,25 @@ class Explorer implements Disposable {
       ),
       commands.registerCommand("coc-explorer.runSystem", (node: ExplorerNode) =>
         this.runSystem(node),
+      ),
+      commands.registerCommand(
+        "coc-explorer.changeRootTo",
+        (node: ExplorerNode) => this.changeRootTo(node),
+      ),
+      commands.registerCommand("coc-explorer.newFile", (node: ExplorerNode) =>
+        this.create(node, false),
+      ),
+      commands.registerCommand("coc-explorer.newFolder", (node: ExplorerNode) =>
+        this.create(node, true),
+      ),
+      commands.registerCommand("coc-explorer.rename", (node: ExplorerNode) =>
+        this.rename(node),
+      ),
+      commands.registerCommand("coc-explorer.delete", (node: ExplorerNode) =>
+        this.delete(node),
+      ),
+      commands.registerCommand("coc-explorer.copyPath", (node: ExplorerNode) =>
+        this.copyPath(node),
       ),
       workspace.onDidSaveTextDocument(() => this.scheduleRefresh()),
       workspace.onDidChangeWorkspaceFolders(() => this.resetRoot()),
@@ -202,6 +258,11 @@ class Explorer implements Disposable {
     else await this.ui.openLocation(Uri.file(node.path).toString(), 0, 0);
   }
 
+  private async toggle(node: ExplorerNode): Promise<void> {
+    if (!node?.directory) return;
+    await this.ui.toggleTreeItem("explorer.files");
+  }
+
   private async changeRoot(): Promise<void> {
     const root = await window.requestInput(
       "Explorer root",
@@ -210,6 +271,60 @@ class Explorer implements Disposable {
     if (!root) return;
     this.provider.setRoot(path.resolve(root));
     await this.show();
+  }
+
+  private async changeRootTo(node: ExplorerNode): Promise<void> {
+    if (!node?.directory) return;
+    this.provider.setRoot(node.path);
+    await this.show();
+  }
+
+  private async create(node: ExplorerNode, directory: boolean): Promise<void> {
+    if (!node) return;
+    const parent = node.directory ? node.path : path.dirname(node.path);
+    const name = await window.requestInput(
+      `${directory ? "New folder" : "New file"} in ${parent}`,
+      "",
+    );
+    if (!name) return;
+    const target = path.isAbsolute(name) ? name : path.join(parent, name);
+
+    if (directory) await fs.mkdir(target, { recursive: true });
+    else {
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.writeFile(target, "", { flag: "wx" });
+    }
+    this.provider.refresh(node.directory ? node : node.parent);
+    if (!directory)
+      await this.ui.openLocation(Uri.file(target).toString(), 0, 0);
+  }
+
+  private async rename(node: ExplorerNode): Promise<void> {
+    if (!node) return;
+    const name = await window.requestInput("Rename", path.basename(node.path));
+    if (!name) return;
+    const target = path.isAbsolute(name)
+      ? name
+      : path.join(path.dirname(node.path), name);
+    if (target === node.path) return;
+    await fs.rename(node.path, target);
+    this.provider.refresh(node.parent);
+  }
+
+  private async delete(node: ExplorerNode): Promise<void> {
+    if (!node) return;
+    const answer = await window.showWarningMessage(
+      `Delete ${node.path}?`,
+      "Delete",
+    );
+    if (answer !== "Delete") return;
+    await fs.rm(node.path, { recursive: node.directory });
+    this.provider.refresh(node.parent);
+  }
+
+  private async copyPath(node: ExplorerNode): Promise<void> {
+    if (!node) return;
+    await workspace.nvim.call("setreg", ["+", node.path]);
   }
 
   private async runSystem(node: ExplorerNode): Promise<void> {
