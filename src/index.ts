@@ -146,12 +146,17 @@ class Explorer implements Disposable {
     const container = ui.registerViewContainer({
       id: "explorer",
       title: "Explorer",
+      icon: "󰉋",
       location: "primarySidebar",
+      order: 1,
     });
-    this.tree = ui.createTreeView({
+    const view = ui.registerView({
       id: "explorer.files",
       containerId: "explorer",
-      title: "Explorer",
+      name: "Explorer",
+      order: 1,
+    });
+    this.tree = ui.createTreeView("explorer.files", {
       treeDataProvider: this.provider,
       enableFilter: true,
       actions: this.viewActions(),
@@ -159,6 +164,7 @@ class Explorer implements Disposable {
 
     context.subscriptions.push(
       container,
+      view,
       this.tree,
       this.provider,
       this.tree.onDidExpandElement(({ element }) =>
