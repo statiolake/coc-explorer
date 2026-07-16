@@ -23,6 +23,12 @@ type ExplorerNode = {
   directory: boolean;
 };
 
+type ClipboardEntry = {
+  operation: "copy" | "cut";
+  source: string;
+  directory: boolean;
+};
+
 class ExplorerProvider implements TreeDataProvider<ExplorerNode>, Disposable {
   private readonly changeEmitter = new Emitter<ExplorerNode | undefined>();
   readonly onDidChangeTreeData: Event<ExplorerNode | undefined> =
@@ -137,6 +143,7 @@ class ExplorerProvider implements TreeDataProvider<ExplorerNode>, Disposable {
 class Explorer implements Disposable {
   private readonly provider = new ExplorerProvider();
   private readonly tree: TreeView<ExplorerNode>;
+  private clipboard: ClipboardEntry | undefined;
   private refreshTimer: NodeJS.Timeout | undefined;
 
   constructor(
@@ -218,6 +225,15 @@ class Explorer implements Disposable {
       ),
       commands.registerCommand("coc-explorer.delete", (node: ExplorerNode) =>
         this.delete(node),
+      ),
+      commands.registerCommand("coc-explorer.cut", (node: ExplorerNode) =>
+        this.stage(node, "cut"),
+      ),
+      commands.registerCommand("coc-explorer.copy", (node: ExplorerNode) =>
+        this.stage(node, "copy"),
+      ),
+      commands.registerCommand("coc-explorer.paste", (node: ExplorerNode) =>
+        this.paste(node),
       ),
       commands.registerCommand("coc-explorer.copyPath", (node: ExplorerNode) =>
         this.copyPath(node),
@@ -338,6 +354,7 @@ class Explorer implements Disposable {
       : path.join(path.dirname(node.path), name);
     if (target === node.path) return;
     await fs.rename(node.path, target);
+    this.clearClipboardWithin(node.path);
     this.provider.refresh(node.parent);
   }
 
@@ -349,7 +366,77 @@ class Explorer implements Disposable {
     );
     if (answer !== "Delete") return;
     await fs.rm(node.path, { recursive: node.directory });
+    this.clearClipboardWithin(node.path);
     this.provider.refresh(node.parent);
+  }
+
+  private stage(node: ExplorerNode, operation: "copy" | "cut"): void {
+    if (!node) return;
+    this.clipboard = {
+      operation,
+      source: node.path,
+      directory: node.directory,
+    };
+    window.showInformationMessage(
+      `${operation === "copy" ? "Copied" : "Cut"} ${node.path}`,
+    );
+  }
+
+  private async paste(node: ExplorerNode): Promise<void> {
+    if (!node) return;
+    const entry = this.clipboard;
+    if (!entry) {
+      window.showWarningMessage("Explorer clipboard is empty");
+      return;
+    }
+
+    const destination = node.directory ? node.path : path.dirname(node.path);
+    const target = path.join(destination, path.basename(entry.source));
+    if (target === entry.source) {
+      window.showWarningMessage("Source and destination are the same");
+      return;
+    }
+    if (entry.directory && isWithin(target, entry.source)) {
+      window.showWarningMessage("Cannot paste a directory inside itself");
+      return;
+    }
+
+    try {
+      await fs.lstat(entry.source);
+    } catch {
+      this.clipboard = undefined;
+      window.showWarningMessage(`Source no longer exists: ${entry.source}`);
+      return;
+    }
+
+    const replace = await pathExists(target);
+    if (replace) {
+      const answer = await window.showWarningMessage(
+        `Replace ${target}?`,
+        "Replace",
+      );
+      if (answer !== "Replace") return;
+    }
+
+    await writeReplacing(target, replace, async () => {
+      if (entry.operation === "copy") {
+        await fs.cp(entry.source, target, {
+          recursive: entry.directory,
+          errorOnExist: true,
+          force: false,
+        });
+      } else {
+        await move(entry.source, target, entry.directory);
+      }
+    });
+    if (entry.operation === "cut") this.clipboard = undefined;
+    this.provider.refresh();
+  }
+
+  private clearClipboardWithin(parent: string): void {
+    if (this.clipboard && isWithin(this.clipboard.source, parent)) {
+      this.clipboard = undefined;
+    }
   }
 
   private async copyPath(node: ExplorerNode): Promise<void> {
@@ -457,6 +544,24 @@ class Explorer implements Disposable {
         handler: (node) => this.rename(node),
       },
       {
+        id: "coc-explorer.cut",
+        title: "Cut",
+        keys: ["x"],
+        handler: (node) => this.stage(node, "cut"),
+      },
+      {
+        id: "coc-explorer.copy",
+        title: "Copy",
+        keys: ["y"],
+        handler: (node) => this.stage(node, "copy"),
+      },
+      {
+        id: "coc-explorer.paste",
+        title: "Paste",
+        keys: ["p"],
+        handler: (node) => this.paste(node),
+      },
+      {
         id: "coc-explorer.delete",
         title: "Delete",
         keys: ["d"],
@@ -506,6 +611,68 @@ class Explorer implements Disposable {
 
 function fnameescape(filename: string): string {
   return filename.replace(/([\\\s|"'])/g, "\\$1");
+}
+
+function isWithin(filename: string, parent: string): boolean {
+  const relative = path.relative(parent, filename);
+  return (
+    relative === "" ||
+    (relative !== ".." &&
+      !relative.startsWith(`..${path.sep}`) &&
+      !path.isAbsolute(relative))
+  );
+}
+
+async function pathExists(filename: string): Promise<boolean> {
+  try {
+    await fs.lstat(filename);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function writeReplacing(
+  target: string,
+  replace: boolean,
+  write: () => Promise<void>,
+): Promise<void> {
+  if (!replace) {
+    await write();
+    return;
+  }
+
+  const backup = path.join(
+    path.dirname(target),
+    `.coc-explorer-${path.basename(target)}-${process.pid}-${Date.now()}`,
+  );
+  await fs.rename(target, backup);
+  try {
+    await write();
+  } catch (error) {
+    await fs.rm(target, { recursive: true, force: true });
+    await fs.rename(backup, target);
+    throw error;
+  }
+  await fs.rm(backup, { recursive: true, force: true });
+}
+
+async function move(
+  source: string,
+  target: string,
+  directory: boolean,
+): Promise<void> {
+  try {
+    await fs.rename(source, target);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EXDEV") throw error;
+    await fs.cp(source, target, {
+      recursive: directory,
+      errorOnExist: true,
+      force: false,
+    });
+    await fs.rm(source, { recursive: directory });
+  }
 }
 
 export async function activate(context: ExtensionContext): Promise<void> {

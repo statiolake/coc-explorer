@@ -9,6 +9,6 @@ single click; right click opens the item's context action menu through
 files intentionally have no type-specific icons.
 
 View actions define both the right-click context menu and NvimTree-style local
-keys: `o`, `<C-x>`, `<C-v>`, `<C-t>`, `a`, `d`, `r`, `R`, `gy`, `.`, `s`, `-`,
-`+`, `<BS>`, and `P`. Coc's native `<CR>`, `<Tab>`, `f`, `t`, and `M` TreeView
-bindings remain available.
+keys: `o`, `<C-x>`, `<C-v>`, `<C-t>`, `a`, `x` (cut), `y` (copy), `p` (paste),
+`d` (delete), `r`, `R`, `gy`, `.`, `s`, `-`, `+`, `<BS>`, and `P`. Coc's native
+`<CR>`, `<Tab>`, `f`, `t`, and `M` TreeView bindings remain available.
