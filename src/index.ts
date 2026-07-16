@@ -28,6 +28,7 @@ class ExplorerProvider implements TreeDataProvider<ExplorerNode>, Disposable {
   private readonly changeEmitter = new Emitter<ExplorerNode | undefined>();
   readonly onDidChangeTreeData: Event<ExplorerNode | undefined> =
     this.changeEmitter.event;
+  private readonly expanded = new Set<string>();
   private root: string;
 
   constructor() {
@@ -40,7 +41,14 @@ class ExplorerProvider implements TreeDataProvider<ExplorerNode>, Disposable {
 
   setRoot(root: string): void {
     this.root = root;
+    this.expanded.clear();
     this.refresh();
+  }
+
+  setExpanded(node: ExplorerNode, expanded: boolean): void {
+    if (expanded) this.expanded.add(node.path);
+    else this.expanded.delete(node.path);
+    this.refresh(node);
   }
 
   refresh(node?: ExplorerNode): void {
@@ -48,14 +56,27 @@ class ExplorerProvider implements TreeDataProvider<ExplorerNode>, Disposable {
   }
 
   getTreeItem(node: ExplorerNode): TreeItem {
+    const expanded = this.expanded.has(node.path);
     const item = new TreeItem(
       Uri.file(node.path),
       node.directory
-        ? TreeItemCollapsibleState.Collapsed
+        ? expanded
+          ? TreeItemCollapsibleState.Expanded
+          : TreeItemCollapsibleState.Collapsed
         : TreeItemCollapsibleState.None,
     );
     item.id = node.path;
     item.tooltip = node.path;
+    if (node.directory) {
+      const config = workspace.getConfiguration("coc-explorer");
+      item.icon = {
+        text: config.get<string>(
+          expanded ? "icons.folderOpen" : "icons.folderClosed",
+          expanded ? "" : "",
+        ),
+        hlGroup: "Directory",
+      };
+    }
     item.command = {
       command: node.directory ? "coc-explorer.toggle" : "coc-explorer.open",
       title: node.directory ? "Expand or Collapse" : "Open",
@@ -176,6 +197,12 @@ class Explorer implements Disposable {
       container,
       this.tree,
       this.provider,
+      this.tree.onDidExpandElement(({ element }) =>
+        this.provider.setExpanded(element, true),
+      ),
+      this.tree.onDidCollapseElement(({ element }) =>
+        this.provider.setExpanded(element, false),
+      ),
       commands.registerCommand("coc-explorer.show", () =>
         this.ui.showContainer("explorer"),
       ),

@@ -106,6 +106,16 @@
         "coc-explorer.showHidden": {
           "type": "boolean",
           "default": true
+        },
+        "coc-explorer.icons.folderClosed": {
+          "type": "string",
+          "default": "",
+          "description": "Icon for a collapsed folder"
+        },
+        "coc-explorer.icons.folderOpen": {
+          "type": "string",
+          "default": "",
+          "description": "Icon for an expanded folder"
         }
       }
     }
