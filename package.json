@@ -54,6 +54,10 @@
         "title": "Open Explorer Item in Vertical Split"
       },
       {
+        "command": "coc-explorer.openTab",
+        "title": "Open Explorer Item in New Tab"
+      },
+      {
         "command": "coc-explorer.runSystem",
         "title": "Run System Command for Explorer Item"
       },
@@ -68,6 +72,10 @@
       {
         "command": "coc-explorer.newFolder",
         "title": "Create Folder in Explorer"
+      },
+      {
+        "command": "coc-explorer.create",
+        "title": "Create Item in Explorer"
       },
       {
         "command": "coc-explorer.rename",

@@ -8,7 +8,6 @@ import {
   ExtensionContext,
   extensions,
   TreeItem,
-  TreeItemAction,
   TreeItemCollapsibleState,
   TreeView,
   TreeDataProvider,
@@ -16,7 +15,7 @@ import {
   window,
   workspace,
 } from "coc.nvim";
-import type { CocUiApi } from "@statiolake/coc-ui";
+import type { CocUiApi, ViewAction } from "@statiolake/coc-ui";
 
 type ExplorerNode = {
   path: string;
@@ -82,41 +81,6 @@ class ExplorerProvider implements TreeDataProvider<ExplorerNode>, Disposable {
       arguments: [node],
     };
     return item;
-  }
-
-  resolveActions(
-    _item: TreeItem,
-    node: ExplorerNode,
-  ): TreeItemAction<ExplorerNode>[] {
-    const action = (
-      title: string,
-      command: string,
-    ): TreeItemAction<ExplorerNode> => ({
-      title,
-      handler: () => commands.executeCommand(command, node),
-    });
-
-    const actions = node.directory
-      ? [
-          action("Expand / Collapse", "coc-explorer.toggle"),
-          action("Set as Root", "coc-explorer.changeRootTo"),
-          action("New File", "coc-explorer.newFile"),
-          action("New Folder", "coc-explorer.newFolder"),
-        ]
-      : [
-          action("Open", "coc-explorer.open"),
-          action("Open in Split", "coc-explorer.openSplit"),
-          action("Open in Vertical Split", "coc-explorer.openVsplit"),
-        ];
-
-    actions.push(
-      action("Rename", "coc-explorer.rename"),
-      action("Delete", "coc-explorer.delete"),
-      action("Copy Path", "coc-explorer.copyPath"),
-      action("Run System Command", "coc-explorer.runSystem"),
-      action("Refresh", "coc-explorer.refresh"),
-    );
-    return actions;
   }
 
   async getChildren(node?: ExplorerNode): Promise<ExplorerNode[]> {
@@ -190,6 +154,7 @@ class Explorer implements Disposable {
       title: "Explorer",
       treeDataProvider: this.provider,
       enableFilter: true,
+      actions: this.viewActions(),
     });
 
     context.subscriptions.push(
@@ -223,6 +188,9 @@ class Explorer implements Disposable {
         "coc-explorer.openVsplit",
         (node: ExplorerNode) => this.open(node, "vsplit"),
       ),
+      commands.registerCommand("coc-explorer.openTab", (node: ExplorerNode) =>
+        this.open(node, "tabedit"),
+      ),
       commands.registerCommand("coc-explorer.runSystem", (node: ExplorerNode) =>
         this.runSystem(node),
       ),
@@ -235,6 +203,9 @@ class Explorer implements Disposable {
       ),
       commands.registerCommand("coc-explorer.newFolder", (node: ExplorerNode) =>
         this.create(node, true),
+      ),
+      commands.registerCommand("coc-explorer.create", (node: ExplorerNode) =>
+        this.createFromInput(node),
       ),
       commands.registerCommand("coc-explorer.rename", (node: ExplorerNode) =>
         this.rename(node),
@@ -276,7 +247,7 @@ class Explorer implements Disposable {
 
   private async open(
     node: ExplorerNode,
-    split?: "split" | "vsplit",
+    split?: "split" | "vsplit" | "tabedit",
   ): Promise<void> {
     if (!node || node.directory) return;
     if (split)
@@ -287,6 +258,11 @@ class Explorer implements Disposable {
   private async toggle(node: ExplorerNode): Promise<void> {
     if (!node?.directory) return;
     await this.ui.toggleTreeItem("explorer.files");
+  }
+
+  private async activate(node: ExplorerNode): Promise<void> {
+    if (node.directory) await this.toggle(node);
+    else await this.open(node);
   }
 
   private async changeRoot(): Promise<void> {
@@ -314,6 +290,28 @@ class Explorer implements Disposable {
     );
     if (!name) return;
     const target = path.isAbsolute(name) ? name : path.join(parent, name);
+
+    if (directory) await fs.mkdir(target, { recursive: true });
+    else {
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.writeFile(target, "", { flag: "wx" });
+    }
+    this.provider.refresh(node.directory ? node : node.parent);
+    if (!directory)
+      await this.ui.openLocation(Uri.file(target).toString(), 0, 0);
+  }
+
+  private async createFromInput(node: ExplorerNode): Promise<void> {
+    if (!node) return;
+    const parent = node.directory ? node.path : path.dirname(node.path);
+    const name = await window.requestInput(`Create in ${parent}`, "");
+    if (!name) return;
+    const directory = name.endsWith(path.sep);
+    const normalized = directory ? name.slice(0, -path.sep.length) : name;
+    if (!normalized) return;
+    const target = path.isAbsolute(normalized)
+      ? normalized
+      : path.join(parent, normalized);
 
     if (directory) await fs.mkdir(target, { recursive: true });
     else {
@@ -374,6 +372,109 @@ class Explorer implements Disposable {
 
   private resetRoot(): void {
     this.provider.setRoot(path.resolve(workspace.rootPath || workspace.cwd));
+  }
+
+  private async changeRootToParent(): Promise<void> {
+    const root = this.provider.getRoot();
+    const parent = path.dirname(root);
+    if (parent === root) return;
+    this.provider.setRoot(parent);
+    await this.show();
+  }
+
+  private async focusParent(node: ExplorerNode): Promise<void> {
+    if (!node.parent) return;
+    await this.tree.reveal(node.parent, { focus: true });
+  }
+
+  private viewActions(): ViewAction<ExplorerNode>[] {
+    const file = (node: ExplorerNode) => !node.directory;
+    const directory = (node: ExplorerNode) => node.directory;
+    return [
+      {
+        id: "coc-explorer.activate",
+        title: "Open / Toggle",
+        keys: ["o"],
+        handler: (node) => this.activate(node),
+      },
+      {
+        id: "coc-explorer.openSplit",
+        title: "Open in Split",
+        keys: ["<C-x>"],
+        when: file,
+        handler: (node) => this.open(node, "split"),
+      },
+      {
+        id: "coc-explorer.openVsplit",
+        title: "Open in Vertical Split",
+        keys: ["<C-v>"],
+        when: file,
+        handler: (node) => this.open(node, "vsplit"),
+      },
+      {
+        id: "coc-explorer.openTab",
+        title: "Open in New Tab",
+        keys: ["<C-t>"],
+        when: file,
+        handler: (node) => this.open(node, "tabedit"),
+      },
+      {
+        id: "coc-explorer.changeRootTo",
+        title: "Set as Root",
+        keys: ["+", "<C-CR>"],
+        when: directory,
+        handler: (node) => this.changeRootTo(node),
+      },
+      {
+        id: "coc-explorer.changeRootToParent",
+        title: "Root Up",
+        keys: ["-"],
+        handler: () => this.changeRootToParent(),
+      },
+      {
+        id: "coc-explorer.focusParent",
+        title: "Focus Parent",
+        keys: ["<BS>", "P"],
+        when: (node) => Boolean(node.parent),
+        handler: (node) => this.focusParent(node),
+      },
+      {
+        id: "coc-explorer.create",
+        title: "Create",
+        keys: ["a"],
+        handler: (node) => this.createFromInput(node),
+      },
+      {
+        id: "coc-explorer.rename",
+        title: "Rename",
+        keys: ["r"],
+        handler: (node) => this.rename(node),
+      },
+      {
+        id: "coc-explorer.delete",
+        title: "Delete",
+        keys: ["d"],
+        handler: (node) => this.delete(node),
+      },
+      {
+        id: "coc-explorer.copyPath",
+        title: "Copy Absolute Path",
+        keys: ["gy"],
+        handler: (node) => this.copyPath(node),
+      },
+      {
+        id: "coc-explorer.runSystem",
+        title: "Run System Command",
+        keys: [".", "s"],
+        handler: (node) => this.runSystem(node),
+      },
+      {
+        id: "coc-explorer.refresh",
+        title: "Refresh",
+        keys: ["R"],
+        handler: () => this.refresh(),
+      },
+    ];
   }
 
   private isWithinRoot(filename: string): boolean {
