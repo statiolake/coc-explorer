@@ -66,7 +66,6 @@ class ExplorerProvider implements TreeDataProvider<ExplorerNode>, Disposable {
         : TreeItemCollapsibleState.None,
     );
     item.id = node.path;
-    item.tooltip = node.path;
     if (node.directory) {
       const config = workspace.getConfiguration("coc-explorer");
       item.icon = {
