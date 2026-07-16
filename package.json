@@ -128,13 +128,19 @@
       }
     }
   },
-  "dependencies": {
-    "@statiolake/coc-ui": "file:../coc-ui"
-  },
   "devDependencies": {
+    "@statiolake/coc-ui": "git+https://github.com/statiolake/coc-ui.git",
     "@types/node": "^16.18.0",
     "coc.nvim": "^0.0.83-next.24",
     "esbuild": "^0.25.0",
     "typescript": "^5.3.3"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/statiolake/coc-explorer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/statiolake/coc-explorer/issues"
+  },
+  "homepage": "https://github.com/statiolake/coc-explorer#readme"
 }
