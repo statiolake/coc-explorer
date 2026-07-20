@@ -1,6 +1,6 @@
 {
   "name": "@statiolake/coc-explorer",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "A lean filesystem explorer for coc.nvim view containers",
   "author": "statiolake",
   "license": "MIT",
@@ -22,83 +22,83 @@
   "contributes": {
     "commands": [
       {
-        "command": "coc-explorer.show",
+        "command": "explorer.show",
         "title": "Show Explorer"
       },
       {
-        "command": "coc-explorer.reveal",
+        "command": "explorer.reveal",
         "title": "Reveal Current File in Explorer"
       },
       {
-        "command": "coc-explorer.refresh",
+        "command": "explorer.refresh",
         "title": "Refresh Explorer"
       },
       {
-        "command": "coc-explorer.changeRoot",
+        "command": "explorer.changeRoot",
         "title": "Change Explorer Root"
       },
       {
-        "command": "coc-explorer.open",
+        "command": "explorer.open",
         "title": "Open Explorer Item"
       },
       {
-        "command": "coc-explorer.toggle",
+        "command": "explorer.toggle",
         "title": "Expand or Collapse Explorer Item"
       },
       {
-        "command": "coc-explorer.openSplit",
+        "command": "explorer.openSplit",
         "title": "Open Explorer Item in Split"
       },
       {
-        "command": "coc-explorer.openVsplit",
+        "command": "explorer.openVsplit",
         "title": "Open Explorer Item in Vertical Split"
       },
       {
-        "command": "coc-explorer.openTab",
+        "command": "explorer.openTab",
         "title": "Open Explorer Item in New Tab"
       },
       {
-        "command": "coc-explorer.runSystem",
+        "command": "explorer.runSystem",
         "title": "Run System Command for Explorer Item"
       },
       {
-        "command": "coc-explorer.changeRootTo",
+        "command": "explorer.changeRootTo",
         "title": "Set Explorer Root to Item"
       },
       {
-        "command": "coc-explorer.newFile",
+        "command": "explorer.newFile",
         "title": "Create File in Explorer"
       },
       {
-        "command": "coc-explorer.newFolder",
+        "command": "explorer.newFolder",
         "title": "Create Folder in Explorer"
       },
       {
-        "command": "coc-explorer.create",
+        "command": "explorer.create",
         "title": "Create Item in Explorer"
       },
       {
-        "command": "coc-explorer.rename",
+        "command": "explorer.rename",
         "title": "Rename Explorer Item"
       },
       {
-        "command": "coc-explorer.delete",
+        "command": "explorer.delete",
         "title": "Delete Explorer Item"
       },
       {
-        "command": "coc-explorer.cut",
+        "command": "explorer.cut",
         "title": "Cut Explorer Item"
       },
       {
-        "command": "coc-explorer.copy",
+        "command": "explorer.copy",
         "title": "Copy Explorer Item"
       },
       {
-        "command": "coc-explorer.paste",
+        "command": "explorer.paste",
         "title": "Paste Explorer Item"
       },
       {
-        "command": "coc-explorer.copyPath",
+        "command": "explorer.copyPath",
         "title": "Copy Explorer Item Path"
       }
     ],
@@ -106,11 +106,11 @@
       "type": "object",
       "title": "Coc Explorer",
       "properties": {
-        "coc-explorer.root": {
+        "explorer.root": {
           "type": "string",
           "default": ""
         },
-        "coc-explorer.exclude": {
+        "explorer.exclude": {
           "type": "array",
           "items": {
             "type": "string"
@@ -123,16 +123,16 @@
             "target"
           ]
         },
-        "coc-explorer.showHidden": {
+        "explorer.showHidden": {
           "type": "boolean",
           "default": true
         },
-        "coc-explorer.icons.folderClosed": {
+        "explorer.icons.folderClosed": {
           "type": "string",
           "default": "",
           "description": "Icon for a collapsed folder"
         },
-        "coc-explorer.icons.folderOpen": {
+        "explorer.icons.folderOpen": {
           "type": "string",
           "default": "",
           "description": "Icon for an expanded folder"
@@ -149,7 +149,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/statiolake/coc-explorer.git"
+    "url": "git+https://github.com/statiolake/explorer.git"
   },
   "bugs": {
     "url": "https://github.com/statiolake/coc-explorer/issues"

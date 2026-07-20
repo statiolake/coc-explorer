@@ -72,7 +72,7 @@ class ExplorerProvider implements TreeDataProvider<ExplorerNode>, Disposable {
     );
     item.id = node.path;
     if (node.directory) {
-      const config = workspace.getConfiguration("coc-explorer");
+      const config = workspace.getConfiguration("explorer");
       item.icon = {
         text: config.get<string>(
           expanded ? "icons.folderOpen" : "icons.folderClosed",
@@ -82,7 +82,7 @@ class ExplorerProvider implements TreeDataProvider<ExplorerNode>, Disposable {
       };
     }
     item.command = {
-      command: node.directory ? "coc-explorer.toggle" : "coc-explorer.open",
+      command: node.directory ? "explorer.toggle" : "explorer.open",
       title: node.directory ? "Expand or Collapse" : "Open",
       arguments: [node],
     };
@@ -127,13 +127,13 @@ class ExplorerProvider implements TreeDataProvider<ExplorerNode>, Disposable {
 
   private configuredRoot(): string {
     const configured = workspace
-      .getConfiguration("coc-explorer")
+      .getConfiguration("explorer")
       .get<string>("root", "");
     return path.resolve(configured || workspace.rootPath || workspace.cwd);
   }
 
   private shouldShow(name: string): boolean {
-    const config = workspace.getConfiguration("coc-explorer");
+    const config = workspace.getConfiguration("explorer");
     if (!config.get<boolean>("showHidden", true) && name.startsWith("."))
       return false;
     return !config.get<string[]>("exclude", []).includes(name);
@@ -180,62 +180,62 @@ class Explorer implements Disposable {
       this.tree.onDidCollapseElement(({ element }) =>
         this.provider.setExpanded(element, false),
       ),
-      commands.registerCommand("coc-explorer.show", () =>
+      commands.registerCommand("explorer.show", () =>
         this.ui.showContainer("explorer"),
       ),
-      commands.registerCommand("coc-explorer.refresh", () => this.refresh()),
-      commands.registerCommand("coc-explorer.changeRoot", () =>
+      commands.registerCommand("explorer.refresh", () => this.refresh()),
+      commands.registerCommand("explorer.changeRoot", () =>
         this.changeRoot(),
       ),
-      commands.registerCommand("coc-explorer.reveal", () => this.reveal()),
-      commands.registerCommand("coc-explorer.toggle", (node: ExplorerNode) =>
+      commands.registerCommand("explorer.reveal", () => this.reveal()),
+      commands.registerCommand("explorer.toggle", (node: ExplorerNode) =>
         this.toggle(node),
       ),
-      commands.registerCommand("coc-explorer.open", (node: ExplorerNode) =>
+      commands.registerCommand("explorer.open", (node: ExplorerNode) =>
         this.open(node),
       ),
-      commands.registerCommand("coc-explorer.openSplit", (node: ExplorerNode) =>
+      commands.registerCommand("explorer.openSplit", (node: ExplorerNode) =>
         this.open(node, "split"),
       ),
       commands.registerCommand(
-        "coc-explorer.openVsplit",
+        "explorer.openVsplit",
         (node: ExplorerNode) => this.open(node, "vsplit"),
       ),
-      commands.registerCommand("coc-explorer.openTab", (node: ExplorerNode) =>
+      commands.registerCommand("explorer.openTab", (node: ExplorerNode) =>
         this.open(node, "tabedit"),
       ),
-      commands.registerCommand("coc-explorer.runSystem", (node: ExplorerNode) =>
+      commands.registerCommand("explorer.runSystem", (node: ExplorerNode) =>
         this.runSystem(node),
       ),
       commands.registerCommand(
-        "coc-explorer.changeRootTo",
+        "explorer.changeRootTo",
         (node: ExplorerNode) => this.changeRootTo(node),
       ),
-      commands.registerCommand("coc-explorer.newFile", (node: ExplorerNode) =>
+      commands.registerCommand("explorer.newFile", (node: ExplorerNode) =>
         this.create(node, false),
       ),
-      commands.registerCommand("coc-explorer.newFolder", (node: ExplorerNode) =>
+      commands.registerCommand("explorer.newFolder", (node: ExplorerNode) =>
         this.create(node, true),
       ),
-      commands.registerCommand("coc-explorer.create", (node: ExplorerNode) =>
+      commands.registerCommand("explorer.create", (node: ExplorerNode) =>
         this.createFromInput(node),
       ),
-      commands.registerCommand("coc-explorer.rename", (node: ExplorerNode) =>
+      commands.registerCommand("explorer.rename", (node: ExplorerNode) =>
         this.rename(node),
       ),
-      commands.registerCommand("coc-explorer.delete", (node: ExplorerNode) =>
+      commands.registerCommand("explorer.delete", (node: ExplorerNode) =>
         this.delete(node),
       ),
-      commands.registerCommand("coc-explorer.cut", (node: ExplorerNode) =>
+      commands.registerCommand("explorer.cut", (node: ExplorerNode) =>
         this.stage(node, "cut"),
       ),
-      commands.registerCommand("coc-explorer.copy", (node: ExplorerNode) =>
+      commands.registerCommand("explorer.copy", (node: ExplorerNode) =>
         this.stage(node, "copy"),
       ),
-      commands.registerCommand("coc-explorer.paste", (node: ExplorerNode) =>
+      commands.registerCommand("explorer.paste", (node: ExplorerNode) =>
         this.paste(node),
       ),
-      commands.registerCommand("coc-explorer.copyPath", (node: ExplorerNode) =>
+      commands.registerCommand("explorer.copyPath", (node: ExplorerNode) =>
         this.copyPath(node),
       ),
       workspace.onDidSaveTextDocument(() => this.scheduleRefresh()),
@@ -485,102 +485,102 @@ class Explorer implements Disposable {
     const directory = (node: ExplorerNode) => node.directory;
     return [
       {
-        id: "coc-explorer.activate",
+        id: "explorer.activate",
         title: "Open / Toggle",
         keys: ["o"],
         handler: (node) => this.activate(node),
       },
       {
-        id: "coc-explorer.openSplit",
+        id: "explorer.openSplit",
         title: "Open in Split",
         keys: ["<C-x>"],
         when: file,
         handler: (node) => this.open(node, "split"),
       },
       {
-        id: "coc-explorer.openVsplit",
+        id: "explorer.openVsplit",
         title: "Open in Vertical Split",
         keys: ["<C-v>"],
         when: file,
         handler: (node) => this.open(node, "vsplit"),
       },
       {
-        id: "coc-explorer.openTab",
+        id: "explorer.openTab",
         title: "Open in New Tab",
         keys: ["<C-t>"],
         when: file,
         handler: (node) => this.open(node, "tabedit"),
       },
       {
-        id: "coc-explorer.changeRootTo",
+        id: "explorer.changeRootTo",
         title: "Set as Root",
         keys: ["+", "<C-CR>"],
         when: directory,
         handler: (node) => this.changeRootTo(node),
       },
       {
-        id: "coc-explorer.changeRootToParent",
+        id: "explorer.changeRootToParent",
         title: "Root Up",
         keys: ["-"],
         handler: () => this.changeRootToParent(),
       },
       {
-        id: "coc-explorer.focusParent",
+        id: "explorer.focusParent",
         title: "Focus Parent",
         keys: ["<BS>", "P"],
         when: (node) => Boolean(node.parent),
         handler: (node) => this.focusParent(node),
       },
       {
-        id: "coc-explorer.create",
+        id: "explorer.create",
         title: "Create",
         keys: ["a"],
         handler: (node) => this.createFromInput(node),
       },
       {
-        id: "coc-explorer.rename",
+        id: "explorer.rename",
         title: "Rename",
         keys: ["r"],
         handler: (node) => this.rename(node),
       },
       {
-        id: "coc-explorer.cut",
+        id: "explorer.cut",
         title: "Cut",
         keys: ["x"],
         handler: (node) => this.stage(node, "cut"),
       },
       {
-        id: "coc-explorer.copy",
+        id: "explorer.copy",
         title: "Copy",
         keys: ["y"],
         handler: (node) => this.stage(node, "copy"),
       },
       {
-        id: "coc-explorer.paste",
+        id: "explorer.paste",
         title: "Paste",
         keys: ["p"],
         handler: (node) => this.paste(node),
       },
       {
-        id: "coc-explorer.delete",
+        id: "explorer.delete",
         title: "Delete",
         keys: ["d"],
         handler: (node) => this.delete(node),
       },
       {
-        id: "coc-explorer.copyPath",
+        id: "explorer.copyPath",
         title: "Copy Absolute Path",
         keys: ["gy"],
         handler: (node) => this.copyPath(node),
       },
       {
-        id: "coc-explorer.runSystem",
+        id: "explorer.runSystem",
         title: "Run System Command",
         keys: [".", "s"],
         handler: (node) => this.runSystem(node),
       },
       {
-        id: "coc-explorer.refresh",
+        id: "explorer.refresh",
         title: "Refresh",
         keys: ["R"],
         handler: () => this.refresh(),
