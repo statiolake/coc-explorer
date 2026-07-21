@@ -7,6 +7,7 @@ import {
   Emitter,
   ExtensionContext,
   extensions,
+  events,
   TreeItem,
   TreeItemCollapsibleState,
   TreeView,
@@ -29,11 +30,16 @@ type ClipboardEntry = {
   directory: boolean;
 };
 
+type RenderAwareTreeView<T> = TreeView<T> & {
+  readonly onDidRefrash?: Event<void>;
+};
+
 class ExplorerProvider implements TreeDataProvider<ExplorerNode>, Disposable {
   private readonly changeEmitter = new Emitter<ExplorerNode | undefined>();
   readonly onDidChangeTreeData: Event<ExplorerNode | undefined> =
     this.changeEmitter.event;
   private readonly expanded = new Set<string>();
+  private readonly nodes = new Map<string, ExplorerNode>();
   private root: string;
 
   constructor() {
@@ -47,7 +53,20 @@ class ExplorerProvider implements TreeDataProvider<ExplorerNode>, Disposable {
   setRoot(root: string): void {
     this.root = root;
     this.expanded.clear();
+    this.nodes.clear();
     this.refresh();
+  }
+
+  getFileNode(filename: string): ExplorerNode {
+    const relative = path.relative(this.root, filename);
+    const parts = relative ? relative.split(path.sep) : [];
+    let parent: ExplorerNode | undefined;
+    let current = this.root;
+    for (let index = 0; index < parts.length; index += 1) {
+      current = path.join(current, parts[index]);
+      parent = this.getNode(current, index < parts.length - 1, parent);
+    }
+    return parent ?? this.getNode(filename, false);
   }
 
   setExpanded(node: ExplorerNode, expanded: boolean): void {
@@ -97,11 +116,13 @@ class ExplorerProvider implements TreeDataProvider<ExplorerNode>, Disposable {
       const entries = await fs.readdir(parent.path, { withFileTypes: true });
       return entries
         .filter((entry) => this.shouldShow(entry.name))
-        .map((entry) => ({
-          path: path.join(parent.path, entry.name),
-          parent: node,
-          directory: entry.isDirectory(),
-        }))
+        .map((entry) =>
+          this.getNode(
+            path.join(parent.path, entry.name),
+            entry.isDirectory(),
+            node,
+          ),
+        )
         .sort((left, right) => {
           if (left.directory !== right.directory)
             return left.directory ? -1 : 1;
@@ -138,12 +159,154 @@ class ExplorerProvider implements TreeDataProvider<ExplorerNode>, Disposable {
       return false;
     return !config.get<string[]>("exclude", []).includes(name);
   }
+
+  private getNode(
+    filename: string,
+    directory: boolean,
+    parent?: ExplorerNode,
+  ): ExplorerNode {
+    const existing = this.nodes.get(filename);
+    if (existing) {
+      existing.directory = directory;
+      existing.parent = parent;
+      return existing;
+    }
+    const node = { path: filename, parent, directory };
+    this.nodes.set(filename, node);
+    return node;
+  }
+}
+
+class IndentGuideRenderer implements Disposable {
+  private readonly disposables: Disposable[] = [];
+  private namespace: number | undefined;
+  private timer: NodeJS.Timeout | undefined;
+  private revision = 0;
+  private disposed = false;
+
+  constructor(
+    private readonly tree: TreeView<ExplorerNode>,
+    provider: ExplorerProvider,
+  ) {
+    const onDidRender = (tree as RenderAwareTreeView<ExplorerNode>)
+      .onDidRefrash;
+    this.disposables.push(
+      provider.onDidChangeTreeData(() => this.schedule(30)),
+      tree.onDidExpandElement(() => this.schedule()),
+      tree.onDidCollapseElement(() => this.schedule()),
+      tree.onDidChangeSelection(() => this.schedule()),
+      tree.onDidChangeVisibility(({ visible }) => {
+        if (visible) this.schedule();
+      }),
+      workspace.onDidChangeConfiguration((event) => {
+        if (event.affectsConfiguration("explorer.indentGuides")) {
+          this.schedule();
+        }
+      }),
+    );
+    if (onDidRender) {
+      this.disposables.push(onDidRender(() => this.schedule()));
+    }
+    this.schedule();
+  }
+
+  dispose(): void {
+    this.disposed = true;
+    this.revision += 1;
+    if (this.timer) clearTimeout(this.timer);
+    for (const disposable of this.disposables) disposable.dispose();
+  }
+
+  private schedule(delay = 0): void {
+    const revision = ++this.revision;
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = setTimeout(() => {
+      this.timer = undefined;
+      void this.render(revision);
+    }, delay);
+  }
+
+  private async render(revision: number): Promise<void> {
+    if (this.disposed || revision !== this.revision || !this.tree.windowId)
+      return;
+
+    try {
+      const nvim = workspace.nvim;
+      const supported = (await nvim.call("has", ["nvim-0.5"])) === 1;
+      if (!supported || revision !== this.revision) return;
+
+      const bufnr = (await nvim.call("nvim_win_get_buf", [
+        this.tree.windowId,
+      ])) as number;
+      const lines = (await nvim.call("nvim_buf_get_lines", [
+        bufnr,
+        0,
+        -1,
+        false,
+      ])) as string[];
+      const namespace = await this.getNamespace();
+      if (revision !== this.revision) return;
+
+      const explorerConfig = workspace.getConfiguration("explorer");
+      const enabled = explorerConfig.get<boolean>(
+        "indentGuides.enabled",
+        true,
+      );
+      const character = explorerConfig.get<string>(
+        "indentGuides.character",
+        "│",
+      );
+      const treeConfig = workspace.getConfiguration("tree");
+      const openedIcon = treeConfig.get<string>("openedIcon", " ");
+      const closedIcon = treeConfig.get<string>("closedIcon", " ");
+
+      nvim.pauseNotification();
+      nvim.call(
+        "nvim_buf_clear_namespace",
+        [bufnr, namespace, 0, -1],
+        true,
+      );
+      if (enabled && character) {
+        nvim.command(
+          "highlight default link CocExplorerIndentGuide LineNr",
+          true,
+        );
+        for (let line = 0; line < lines.length; line += 1) {
+          const depth = renderedDepth(lines[line], openedIcon, closedIcon);
+          for (let level = 0; level < depth; level += 1) {
+            nvim.call(
+              "nvim_buf_set_extmark",
+              [bufnr, namespace, line, level * 2, {
+                virt_text: [[character, "CocExplorerIndentGuide"]],
+                virt_text_pos: "overlay",
+                hl_mode: "combine",
+              }],
+              true,
+            );
+          }
+        }
+      }
+      await nvim.resumeNotification(false);
+    } catch {
+      // The TreeView window can disappear while an asynchronous render is pending.
+    }
+  }
+
+  private async getNamespace(): Promise<number> {
+    if (this.namespace === undefined) {
+      this.namespace = (await workspace.nvim.call("nvim_create_namespace", [
+        "coc-explorer-indent-guides",
+      ])) as number;
+    }
+    return this.namespace;
+  }
 }
 
 class Explorer implements Disposable {
   private readonly provider = new ExplorerProvider();
   private readonly tree: TreeView<ExplorerNode>;
   private clipboard: ClipboardEntry | undefined;
+  private currentFile: string | undefined;
   private refreshTimer: NodeJS.Timeout | undefined;
 
   constructor(
@@ -168,12 +331,14 @@ class Explorer implements Disposable {
       enableFilter: true,
       actions: this.viewActions(),
     });
+    const indentGuides = new IndentGuideRenderer(this.tree, this.provider);
 
     context.subscriptions.push(
       container,
       view,
       this.tree,
       this.provider,
+      indentGuides,
       this.tree.onDidExpandElement(({ element }) =>
         this.provider.setExpanded(element, true),
       ),
@@ -238,9 +403,12 @@ class Explorer implements Disposable {
       commands.registerCommand("explorer.copyPath", (node: ExplorerNode) =>
         this.copyPath(node),
       ),
+      events.on("BufEnter", (bufnr) => this.rememberCurrentFile(bufnr)),
+      events.on("WinEnter", (winid) => this.onWindowFocused(winid)),
       workspace.onDidSaveTextDocument(() => this.scheduleRefresh()),
       workspace.onDidChangeWorkspaceFolders(() => this.resetRoot()),
     );
+    this.rememberCurrentFile(events.cursor.bufnr);
   }
 
   async show(): Promise<void> {
@@ -256,10 +424,8 @@ class Explorer implements Disposable {
     }
 
     const filename = uri.fsPath;
-    if (!this.isWithinRoot(filename))
-      this.provider.setRoot(path.dirname(filename));
-    await this.ui.showView("explorer.files", { focus: true });
-    await this.tree.reveal(this.nodeFor(filename), { focus: true, expand: 2 });
+    this.currentFile = filename;
+    await this.revealFile(filename, true);
   }
 
   dispose(): void {
@@ -480,6 +646,37 @@ class Explorer implements Disposable {
     await this.tree.reveal(node.parent, { focus: true });
   }
 
+  private rememberCurrentFile(bufnr: number): void {
+    const document = workspace.getDocument(bufnr);
+    if (!document || document.buftype) return;
+    const uri = Uri.parse(document.uri);
+    this.currentFile = uri.scheme === "file" ? uri.fsPath : undefined;
+  }
+
+  private async onWindowFocused(winid: number): Promise<void> {
+    if (winid !== this.tree.windowId || !this.currentFile) return;
+    const enabled = workspace
+      .getConfiguration("explorer")
+      .get<boolean>("revealOnFocus", true);
+    if (enabled) await this.revealFile(this.currentFile, false);
+  }
+
+  private async revealFile(
+    filename: string,
+    ensureVisible: boolean,
+  ): Promise<void> {
+    if (!this.isWithinRoot(filename)) {
+      this.provider.setRoot(path.dirname(filename));
+    }
+    if (ensureVisible) {
+      await this.ui.showView("explorer.files", { focus: true });
+    }
+    await this.tree.reveal(this.provider.getFileNode(filename), {
+      focus: true,
+      expand: 2,
+    });
+  }
+
   private viewActions(): ViewAction<ExplorerNode>[] {
     const file = (node: ExplorerNode) => !node.directory;
     const directory = (node: ExplorerNode) => node.directory;
@@ -594,23 +791,26 @@ class Explorer implements Disposable {
       filename.startsWith(`${this.provider.getRoot()}${path.sep}`)
     );
   }
-
-  private nodeFor(filename: string): ExplorerNode {
-    const parts = path
-      .relative(this.provider.getRoot(), filename)
-      .split(path.sep);
-    let parent: ExplorerNode | undefined;
-    let current = this.provider.getRoot();
-    for (const part of parts) {
-      current = path.join(current, part);
-      parent = { path: current, parent, directory: current !== filename };
-    }
-    return parent ?? { path: filename, directory: false };
-  }
 }
 
 function fnameescape(filename: string): string {
   return filename.replace(/([\\\s|"'])/g, "\\$1");
+}
+
+function renderedDepth(
+  line: string,
+  openedIcon: string,
+  closedIcon: string,
+): number {
+  const indentation = line.match(/^ */)?.[0].length ?? 0;
+  if (indentation === 0) return 0;
+
+  const content = line.slice(indentation);
+  const hasVisibleTreeIcon = [openedIcon, closedIcon]
+    .filter((icon) => icon.trim().length > 0)
+    .some((icon) => content.startsWith(`${icon} `));
+  const controlIndent = hasVisibleTreeIcon ? 0 : 1;
+  return Math.max(0, Math.floor(indentation / 2) - controlIndent);
 }
 
 function isWithin(filename: string, parent: string): boolean {

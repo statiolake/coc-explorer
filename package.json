@@ -127,6 +127,21 @@
           "type": "boolean",
           "default": true
         },
+        "explorer.revealOnFocus": {
+          "type": "boolean",
+          "default": true,
+          "description": "Reveal the current file when the Explorer receives focus"
+        },
+        "explorer.indentGuides.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show vertical guides for nested tree items"
+        },
+        "explorer.indentGuides.character": {
+          "type": "string",
+          "default": "│",
+          "description": "Character used to render tree indentation guides"
+        },
         "explorer.icons.folderClosed": {
           "type": "string",
           "default": "",
