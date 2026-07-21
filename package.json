@@ -144,13 +144,13 @@
         },
         "explorer.icons.folderClosed": {
           "type": "string",
-          "default": "",
-          "description": "Icon for a collapsed folder"
+          "default": "",
+          "description": "Disclosure marker for a collapsed folder"
         },
         "explorer.icons.folderOpen": {
           "type": "string",
-          "default": "",
-          "description": "Icon for an expanded folder"
+          "default": "",
+          "description": "Disclosure marker for an expanded folder"
         },
         "explorer.icons.file": {
           "type": "string",

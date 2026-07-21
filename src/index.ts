@@ -32,6 +32,11 @@ type ClipboardEntry = {
 
 type RenderAwareTreeView<T> = TreeView<T> & {
   readonly onDidRefrash?: Event<void>;
+  readonly filtering?: boolean;
+  readonly renderedItems?: ReadonlyArray<{
+    level: number;
+    node: T;
+  }>;
 };
 
 class ExplorerProvider implements TreeDataProvider<ExplorerNode>, Disposable {
@@ -64,7 +69,9 @@ class ExplorerProvider implements TreeDataProvider<ExplorerNode>, Disposable {
     let current = this.root;
     for (let index = 0; index < parts.length; index += 1) {
       current = path.join(current, parts[index]);
-      parent = this.getNode(current, index < parts.length - 1, parent);
+      const directory = index < parts.length - 1;
+      parent = this.getNode(current, directory, parent);
+      if (directory) this.expanded.add(current);
     }
     return parent ?? this.getNode(filename, false);
   }
@@ -73,6 +80,10 @@ class ExplorerProvider implements TreeDataProvider<ExplorerNode>, Disposable {
     if (expanded) this.expanded.add(node.path);
     else this.expanded.delete(node.path);
     this.refresh(node);
+  }
+
+  isExpanded(node: ExplorerNode): boolean {
+    return this.expanded.has(node.path);
   }
 
   refresh(node?: ExplorerNode): void {
@@ -90,21 +101,6 @@ class ExplorerProvider implements TreeDataProvider<ExplorerNode>, Disposable {
         : TreeItemCollapsibleState.None,
     );
     item.id = node.path;
-    const config = workspace.getConfiguration("explorer");
-    if (node.directory) {
-      item.icon = {
-        text: config.get<string>(
-          expanded ? "icons.folderOpen" : "icons.folderClosed",
-          expanded ? "" : "",
-        ),
-        hlGroup: "Directory",
-      };
-    } else {
-      item.icon = {
-        text: config.get<string>("icons.file", ""),
-        hlGroup: "Normal",
-      };
-    }
     item.command = {
       command: node.directory ? "explorer.toggle" : "explorer.open",
       title: node.directory ? "Expand or Collapse" : "Open",
@@ -182,7 +178,7 @@ class ExplorerProvider implements TreeDataProvider<ExplorerNode>, Disposable {
   }
 }
 
-class IndentGuideRenderer implements Disposable {
+class TreeDecorationRenderer implements Disposable {
   private readonly disposables: Disposable[] = [];
   private namespace: number | undefined;
   private timer: NodeJS.Timeout | undefined;
@@ -191,7 +187,7 @@ class IndentGuideRenderer implements Disposable {
 
   constructor(
     private readonly tree: TreeView<ExplorerNode>,
-    provider: ExplorerProvider,
+    private readonly provider: ExplorerProvider,
   ) {
     const onDidRender = (tree as RenderAwareTreeView<ExplorerNode>)
       .onDidRefrash;
@@ -261,9 +257,15 @@ class IndentGuideRenderer implements Disposable {
         "indentGuides.character",
         "│",
       );
-      const treeConfig = workspace.getConfiguration("tree");
-      const openedIcon = treeConfig.get<string>("openedIcon", " ");
-      const closedIcon = treeConfig.get<string>("closedIcon", " ");
+      const folderClosed = explorerConfig.get<string>(
+        "icons.folderClosed",
+        "",
+      );
+      const folderOpen = explorerConfig.get<string>("icons.folderOpen", "");
+      const fileIcon = explorerConfig.get<string>("icons.file", "");
+      const renderAwareTree = this.tree as RenderAwareTreeView<ExplorerNode>;
+      const renderedItems = renderAwareTree.renderedItems ?? [];
+      const startLine = Math.max(0, lines.length - renderedItems.length);
 
       nvim.pauseNotification();
       nvim.call(
@@ -276,12 +278,12 @@ class IndentGuideRenderer implements Disposable {
           "highlight default link CocExplorerIndentGuide LineNr",
           true,
         );
-        for (let line = 0; line < lines.length; line += 1) {
-          const depth = renderedDepth(lines[line], openedIcon, closedIcon);
-          for (let level = 0; level < depth; level += 1) {
+        for (let index = 0; index < renderedItems.length; index += 1) {
+          const { level } = renderedItems[index];
+          for (let ancestor = 0; ancestor < level; ancestor += 1) {
             nvim.call(
               "nvim_buf_set_extmark",
-              [bufnr, namespace, line, level * 2, {
+              [bufnr, namespace, startLine + index, ancestor * 2, {
                 virt_text: [[character, "CocExplorerIndentGuide"]],
                 virt_text_pos: "overlay",
                 hl_mode: "combine",
@@ -290,6 +292,27 @@ class IndentGuideRenderer implements Disposable {
             );
           }
         }
+      }
+      for (let index = 0; index < renderedItems.length; index += 1) {
+        const { level, node } = renderedItems[index];
+        if (node.directory && renderAwareTree.filtering) continue;
+        const marker = node.directory
+          ? this.provider.isExpanded(node)
+            ? folderOpen
+            : folderClosed
+          : fileIcon;
+        if (!marker) continue;
+        nvim.call(
+          "nvim_buf_set_extmark",
+          [bufnr, namespace, startLine + index, level * 2, {
+            virt_text: [
+              [marker, node.directory ? "CocTreeOpenClose" : "Normal"],
+            ],
+            virt_text_pos: "overlay",
+            hl_mode: "combine",
+          }],
+          true,
+        );
       }
       await nvim.resumeNotification(false);
     } catch {
@@ -336,14 +359,17 @@ class Explorer implements Disposable {
       enableFilter: true,
       actions: this.viewActions(),
     });
-    const indentGuides = new IndentGuideRenderer(this.tree, this.provider);
+    const treeDecorations = new TreeDecorationRenderer(
+      this.tree,
+      this.provider,
+    );
 
     context.subscriptions.push(
       container,
       view,
       this.tree,
       this.provider,
-      indentGuides,
+      treeDecorations,
       this.tree.onDidExpandElement(({ element }) =>
         this.provider.setExpanded(element, true),
       ),
@@ -800,22 +826,6 @@ class Explorer implements Disposable {
 
 function fnameescape(filename: string): string {
   return filename.replace(/([\\\s|"'])/g, "\\$1");
-}
-
-function renderedDepth(
-  line: string,
-  openedIcon: string,
-  closedIcon: string,
-): number {
-  const indentation = line.match(/^ */)?.[0].length ?? 0;
-  if (indentation === 0) return 0;
-
-  const content = line.slice(indentation);
-  const hasVisibleTreeIcon = [openedIcon, closedIcon]
-    .filter((icon) => icon.trim().length > 0)
-    .some((icon) => content.startsWith(`${icon} `));
-  const controlIndent = hasVisibleTreeIcon ? 0 : 1;
-  return Math.max(0, Math.floor(indentation / 2) - controlIndent);
 }
 
 function isWithin(filename: string, parent: string): boolean {
