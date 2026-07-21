@@ -5,12 +5,12 @@ Explorer View Container selected from the primary Activity Bar provided by
 `@statiolake/coc-ui`, with open, split, reveal,
 root-change, refresh, and filesystem actions. Files open and folders toggle on
 single click; right click opens the item's context action menu through
-`@statiolake/coc-ui`. Folder state is shown with configurable Nerd Font icons;
-files intentionally have no type-specific icons. Nested items have vertical
-indent guides by default; configure them with `explorer.indentGuides.enabled`
-and `explorer.indentGuides.character`. Focusing the Explorer reveals the most
-recently focused file by default; set `explorer.revealOnFocus` to `false` to
-disable this behavior.
+`@statiolake/coc-ui`. Folder state and files are shown with configurable Nerd
+Font icons; files intentionally use one generic icon instead of type-specific
+icons. Nested items have vertical indent guides by default; configure them with
+`explorer.indentGuides.enabled` and `explorer.indentGuides.character`. Focusing
+the Explorer reveals the most recently focused file by default; set
+`explorer.revealOnFocus` to `false` to disable this behavior.
 
 View actions define both the right-click context menu and NvimTree-style local
 keys: `o`, `<C-x>`, `<C-v>`, `<C-t>`, `a`, `x` (cut), `y` (copy), `p` (paste),

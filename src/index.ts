@@ -90,14 +90,19 @@ class ExplorerProvider implements TreeDataProvider<ExplorerNode>, Disposable {
         : TreeItemCollapsibleState.None,
     );
     item.id = node.path;
+    const config = workspace.getConfiguration("explorer");
     if (node.directory) {
-      const config = workspace.getConfiguration("explorer");
       item.icon = {
         text: config.get<string>(
           expanded ? "icons.folderOpen" : "icons.folderClosed",
           expanded ? "" : "",
         ),
         hlGroup: "Directory",
+      };
+    } else {
+      item.icon = {
+        text: config.get<string>("icons.file", ""),
+        hlGroup: "Normal",
       };
     }
     item.command = {

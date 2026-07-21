@@ -151,6 +151,11 @@
           "type": "string",
           "default": "",
           "description": "Icon for an expanded folder"
+        },
+        "explorer.icons.file": {
+          "type": "string",
+          "default": "",
+          "description": "Generic icon for files"
         }
       }
     }
