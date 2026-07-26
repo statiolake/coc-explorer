@@ -17,6 +17,17 @@ import {
   workspace,
 } from "coc.nvim";
 import type { CocUiApi, ViewAction } from "@statiolake/coc-ui";
+import {
+  type BufferFileCandidate,
+  candidateFromUri,
+  nextRememberedFile,
+  resolveEditorFile,
+} from "./current-file";
+import {
+  ActivationCoalescer,
+  decideExplorerActivation,
+} from "./explorer-activation";
+import { LatestWinsCoordinator } from "./latest-wins";
 
 type ExplorerNode = {
   path: string;
@@ -173,11 +184,18 @@ class ExplorerProvider implements TreeDataProvider<ExplorerNode>, Disposable {
   }
 }
 
+/** Yields so native TreeView can assign windowId after WinEnter/visibility. */
+const ACTIVATION_RETRY_MS = 10;
+const ACTIVATION_MAX_ATTEMPTS = 20;
+
 class Explorer implements Disposable {
   private readonly provider = new ExplorerProvider();
   private readonly tree: TreeView<ExplorerNode>;
+  private readonly reveals = new LatestWinsCoordinator();
+  private readonly activations = new ActivationCoalescer();
   private clipboard: ClipboardEntry | undefined;
-  private currentFile: string | undefined;
+  /** Last normal file-buffer path; never overwritten by CocTree/UI buffers. */
+  private rememberedFile: string | undefined;
   private refreshTimer: NodeJS.Timeout | undefined;
 
   constructor(
@@ -214,6 +232,9 @@ class Explorer implements Disposable {
       this.tree.onDidCollapseElement(({ element }) =>
         this.provider.setExpanded(element, false),
       ),
+      this.tree.onDidChangeVisibility(({ visible }) => {
+        if (visible) void this.onExplorerActivation();
+      }),
       workspace.onDidChangeConfiguration((event) => {
         if (event.affectsConfiguration("explorer.icons.file")) {
           this.refresh();
@@ -278,7 +299,7 @@ class Explorer implements Disposable {
         this.copyPath(node),
       ),
       events.on("BufEnter", (bufnr) => this.rememberCurrentFile(bufnr)),
-      events.on("WinEnter", (winid) => this.onWindowFocused(winid)),
+      events.on("WinEnter", (winid) => void this.onExplorerActivation(winid)),
       workspace.onDidSaveTextDocument(() => this.scheduleRefresh()),
       workspace.onDidChangeWorkspaceFolders(() => this.resetRoot()),
     );
@@ -292,17 +313,22 @@ class Explorer implements Disposable {
   async reveal(): Promise<void> {
     const document = await workspace.document;
     const uri = Uri.parse(document.textDocument.uri);
-    if (uri.scheme !== "file") {
+    const active = candidateFromUri(document.buftype, uri);
+    this.rememberedFile = nextRememberedFile(this.rememberedFile, active);
+    const filename = resolveEditorFile(
+      this.rememberedFile,
+      active,
+      await this.readAlternateWindowCandidate(),
+    );
+    if (!filename) {
       await this.show();
       return;
     }
-
-    const filename = uri.fsPath;
-    this.currentFile = filename;
     await this.revealFile(filename, true);
   }
 
   dispose(): void {
+    this.activations.next();
     if (this.refreshTimer) clearTimeout(this.refreshTimer);
     this.tree.dispose();
   }
@@ -517,37 +543,171 @@ class Explorer implements Disposable {
 
   private async focusParent(node: ExplorerNode): Promise<void> {
     if (!node.parent) return;
-    await this.tree.reveal(node.parent, { focus: true });
+    const parent = node.parent;
+    await this.reveals.schedule(async (isCurrent) => {
+      if (!isCurrent()) return;
+      await this.tree.reveal(parent, { focus: true });
+    });
   }
 
   private rememberCurrentFile(bufnr: number): void {
     const document = workspace.getDocument(bufnr);
-    if (!document || document.buftype) return;
+    if (!document) return;
     const uri = Uri.parse(document.uri);
-    this.currentFile = uri.scheme === "file" ? uri.fsPath : undefined;
+    this.rememberedFile = nextRememberedFile(
+      this.rememberedFile,
+      candidateFromUri(document.buftype, uri),
+    );
   }
 
-  private async onWindowFocused(winid: number): Promise<void> {
-    if (winid !== this.tree.windowId || !this.currentFile) return;
+  /**
+   * Unified WinEnter / visibility activation. Defers until TreeView.windowId
+   * and the current window are stable and matched (actual focus), then routes
+   * through revealOnFocus. Skips when the tree is merely shown with focus:false.
+   */
+  private async onExplorerActivation(enteredWinid?: number): Promise<void> {
+    const generation = this.activations.next();
+    try {
+      const focused = await this.waitUntilExplorerFocused(
+        generation,
+        enteredWinid,
+      );
+      if (!focused) return;
+      await this.revealOnFocusIfEnabled();
+    } catch {
+      // Activation/reveal failures should not surface as unhandled rejections.
+    }
+  }
+
+  private async waitUntilExplorerFocused(
+    generation: number,
+    enteredWinid?: number,
+  ): Promise<boolean> {
+    let hintWinid = enteredWinid;
+    for (let attempt = 0; attempt < ACTIVATION_MAX_ATTEMPTS; attempt += 1) {
+      if (!this.activations.isCurrent(generation)) return false;
+
+      const treeWindowId = this.tree.windowId;
+      if (
+        hintWinid != null &&
+        treeWindowId != null &&
+        hintWinid !== treeWindowId
+      ) {
+        return false;
+      }
+
+      const currentWindowId =
+        hintWinid ?? (await this.readCurrentWindowId());
+      const decision = decideExplorerActivation({
+        treeWindowId,
+        currentWindowId,
+        superseded: !this.activations.isCurrent(generation),
+      });
+      if (decision === "reveal") return true;
+      if (decision === "abort") return false;
+
+      await delay(ACTIVATION_RETRY_MS);
+      // Once windowId is assigned, prefer the live current window so a focus
+      // move (or focus:false show) is observed accurately.
+      if (this.tree.windowId != null) hintWinid = undefined;
+    }
+    return false;
+  }
+
+  private async revealOnFocusIfEnabled(): Promise<void> {
     const enabled = workspace
       .getConfiguration("explorer")
       .get<boolean>("revealOnFocus", true);
-    if (enabled) await this.revealFile(this.currentFile, false);
+    if (!enabled) return;
+
+    const filename = await this.resolveFileAtExplorerFocus();
+    if (!filename) return;
+    await this.revealFile(filename, false);
   }
 
-  private async revealFile(
+  private async readCurrentWindowId(): Promise<number | undefined> {
+    try {
+      const winid = (await workspace.nvim.call("win_getid")) as number;
+      return typeof winid === "number" && winid > 0 ? winid : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Read the Neovim alternate/previous window's buffer as a file candidate.
+   * Invalid or closed windows yield undefined; never throws. Prefers coc's
+   * Document when attached; otherwise reads buftype/name from Neovim directly
+   * so BufEnter delivery lag cannot hide the editor file.
+   */
+  private async readAlternateWindowCandidate(): Promise<
+    BufferFileCandidate | undefined
+  > {
+    try {
+      const winid = Number(
+        await workspace.nvim.eval('win_getid(winnr("#"))'),
+      );
+      if (!Number.isFinite(winid) || winid <= 0) return undefined;
+
+      const win = workspace.nvim.createWindow(winid);
+      if (!(await win.valid)) return undefined;
+
+      const buffer = await win.buffer;
+      const document = workspace.getDocument(buffer.id);
+      if (document) {
+        return candidateFromUri(document.buftype, Uri.parse(document.uri));
+      }
+
+      const buftype = String((await buffer.getOption("buftype")) ?? "");
+      const name = await buffer.name;
+      if (!name) return undefined;
+      return candidateFromUri(buftype, Uri.file(name));
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Prefer an active normal file buffer; else the alternate window's normal
+   * file (covers BufEnter lag); else the remembered editor path.
+   */
+  private async resolveFileAtExplorerFocus(): Promise<string | undefined> {
+    const document = workspace.getDocument(events.cursor.bufnr);
+    const active = document
+      ? candidateFromUri(document.buftype, Uri.parse(document.uri))
+      : undefined;
+    return resolveEditorFile(
+      this.rememberedFile,
+      active,
+      await this.readAlternateWindowCandidate(),
+    );
+  }
+
+  /** Latest-request-wins: root change + expansion only for the processed request. */
+  private revealFile(
     filename: string,
     ensureVisible: boolean,
   ): Promise<void> {
-    if (!this.isWithinRoot(filename)) {
-      this.provider.setRoot(path.dirname(filename));
-    }
-    if (ensureVisible) {
-      await this.ui.showView("explorer.files", { focus: true });
-    }
-    await this.tree.reveal(this.provider.getFileNode(filename), {
-      focus: true,
-      expand: 2,
+    return this.reveals.schedule(async (isCurrent) => {
+      if (!isCurrent()) return;
+
+      if (!this.isWithinRoot(filename)) {
+        this.provider.setRoot(path.dirname(filename));
+      }
+      if (!isCurrent()) return;
+
+      if (ensureVisible) {
+        await this.ui.showView("explorer.files", { focus: true });
+      }
+      if (!isCurrent()) return;
+
+      const node = this.provider.getFileNode(filename);
+      if (!isCurrent()) return;
+
+      await this.tree.reveal(node, {
+        focus: true,
+        expand: 2,
+      });
     });
   }
 
@@ -665,6 +825,10 @@ class Explorer implements Disposable {
       filename.startsWith(`${this.provider.getRoot()}${path.sep}`)
     );
   }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function fnameescape(filename: string): string {

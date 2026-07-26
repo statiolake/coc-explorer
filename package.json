@@ -17,7 +17,8 @@
   "scripts": {
     "build": "node esbuild.mjs",
     "prepare": "node esbuild.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsc --project tsconfig.test.json && node --test .tmp/test/latest-wins.test.js .tmp/test/current-file.test.js .tmp/test/explorer-activation.test.js; status=$?; rm -rf .tmp; exit $status"
   },
   "contributes": {
     "commands": [
