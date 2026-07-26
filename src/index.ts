@@ -30,15 +30,6 @@ type ClipboardEntry = {
   directory: boolean;
 };
 
-type RenderAwareTreeView<T> = TreeView<T> & {
-  readonly onDidRefrash?: Event<void>;
-  readonly filtering?: boolean;
-  readonly renderedItems?: ReadonlyArray<{
-    level: number;
-    node: T;
-  }>;
-};
-
 class ExplorerProvider implements TreeDataProvider<ExplorerNode>, Disposable {
   private readonly changeEmitter = new Emitter<ExplorerNode | undefined>();
   readonly onDidChangeTreeData: Event<ExplorerNode | undefined> =
@@ -82,10 +73,6 @@ class ExplorerProvider implements TreeDataProvider<ExplorerNode>, Disposable {
     this.refresh(node);
   }
 
-  isExpanded(node: ExplorerNode): boolean {
-    return this.expanded.has(node.path);
-  }
-
   refresh(node?: ExplorerNode): void {
     this.changeEmitter.fire(node);
   }
@@ -101,6 +88,14 @@ class ExplorerProvider implements TreeDataProvider<ExplorerNode>, Disposable {
         : TreeItemCollapsibleState.None,
     );
     item.id = node.path;
+    if (!node.directory) {
+      const fileIcon = workspace
+        .getConfiguration("explorer")
+        .get<string>("icons.file", "");
+      if (fileIcon) {
+        item.icon = { text: fileIcon, hlGroup: "Normal" };
+      }
+    }
     item.command = {
       command: node.directory ? "explorer.toggle" : "explorer.open",
       title: node.directory ? "Expand or Collapse" : "Open",
@@ -178,158 +173,6 @@ class ExplorerProvider implements TreeDataProvider<ExplorerNode>, Disposable {
   }
 }
 
-class TreeDecorationRenderer implements Disposable {
-  private readonly disposables: Disposable[] = [];
-  private namespace: number | undefined;
-  private timer: NodeJS.Timeout | undefined;
-  private revision = 0;
-  private disposed = false;
-
-  constructor(
-    private readonly tree: TreeView<ExplorerNode>,
-    private readonly provider: ExplorerProvider,
-  ) {
-    const onDidRender = (tree as RenderAwareTreeView<ExplorerNode>)
-      .onDidRefrash;
-    this.disposables.push(
-      provider.onDidChangeTreeData(() => this.schedule(30)),
-      tree.onDidExpandElement(() => this.schedule()),
-      tree.onDidCollapseElement(() => this.schedule()),
-      tree.onDidChangeSelection(() => this.schedule()),
-      tree.onDidChangeVisibility(({ visible }) => {
-        if (visible) this.schedule();
-      }),
-      workspace.onDidChangeConfiguration((event) => {
-        if (event.affectsConfiguration("explorer.indentGuides")) {
-          this.schedule();
-        }
-      }),
-    );
-    if (onDidRender) {
-      this.disposables.push(onDidRender(() => this.schedule()));
-    }
-    this.schedule();
-  }
-
-  dispose(): void {
-    this.disposed = true;
-    this.revision += 1;
-    if (this.timer) clearTimeout(this.timer);
-    for (const disposable of this.disposables) disposable.dispose();
-  }
-
-  private schedule(delay = 0): void {
-    const revision = ++this.revision;
-    if (this.timer) clearTimeout(this.timer);
-    this.timer = setTimeout(() => {
-      this.timer = undefined;
-      void this.render(revision);
-    }, delay);
-  }
-
-  private async render(revision: number): Promise<void> {
-    if (this.disposed || revision !== this.revision || !this.tree.windowId)
-      return;
-
-    try {
-      const nvim = workspace.nvim;
-      const supported = (await nvim.call("has", ["nvim-0.5"])) === 1;
-      if (!supported || revision !== this.revision) return;
-
-      const bufnr = (await nvim.call("nvim_win_get_buf", [
-        this.tree.windowId,
-      ])) as number;
-      const lines = (await nvim.call("nvim_buf_get_lines", [
-        bufnr,
-        0,
-        -1,
-        false,
-      ])) as string[];
-      const namespace = await this.getNamespace();
-      if (revision !== this.revision) return;
-
-      const explorerConfig = workspace.getConfiguration("explorer");
-      const enabled = explorerConfig.get<boolean>(
-        "indentGuides.enabled",
-        true,
-      );
-      const character = explorerConfig.get<string>(
-        "indentGuides.character",
-        "│",
-      );
-      const folderClosed = explorerConfig.get<string>(
-        "icons.folderClosed",
-        "",
-      );
-      const folderOpen = explorerConfig.get<string>("icons.folderOpen", "");
-      const fileIcon = explorerConfig.get<string>("icons.file", "");
-      const renderAwareTree = this.tree as RenderAwareTreeView<ExplorerNode>;
-      const renderedItems = renderAwareTree.renderedItems ?? [];
-      const startLine = Math.max(0, lines.length - renderedItems.length);
-
-      nvim.pauseNotification();
-      nvim.call(
-        "nvim_buf_clear_namespace",
-        [bufnr, namespace, 0, -1],
-        true,
-      );
-      if (enabled && character) {
-        nvim.command(
-          "highlight default link CocExplorerIndentGuide LineNr",
-          true,
-        );
-        for (let index = 0; index < renderedItems.length; index += 1) {
-          const { level } = renderedItems[index];
-          for (let ancestor = 0; ancestor < level; ancestor += 1) {
-            nvim.call(
-              "nvim_buf_set_extmark",
-              [bufnr, namespace, startLine + index, ancestor * 2, {
-                virt_text: [[character, "CocExplorerIndentGuide"]],
-                virt_text_pos: "overlay",
-                hl_mode: "combine",
-              }],
-              true,
-            );
-          }
-        }
-      }
-      for (let index = 0; index < renderedItems.length; index += 1) {
-        const { level, node } = renderedItems[index];
-        if (node.directory && renderAwareTree.filtering) continue;
-        const marker = node.directory
-          ? this.provider.isExpanded(node)
-            ? folderOpen
-            : folderClosed
-          : fileIcon;
-        if (!marker) continue;
-        nvim.call(
-          "nvim_buf_set_extmark",
-          [bufnr, namespace, startLine + index, level * 2, {
-            virt_text: [
-              [marker, node.directory ? "CocTreeOpenClose" : "Normal"],
-            ],
-            virt_text_pos: "overlay",
-            hl_mode: "combine",
-          }],
-          true,
-        );
-      }
-      await nvim.resumeNotification(false);
-    } catch {
-      // The TreeView window can disappear while an asynchronous render is pending.
-    }
-  }
-
-  private async getNamespace(): Promise<number> {
-    if (this.namespace === undefined) {
-      this.namespace = (await workspace.nvim.call("nvim_create_namespace", [
-        "coc-explorer-indent-guides",
-      ])) as number;
-    }
-    return this.namespace;
-  }
-}
-
 class Explorer implements Disposable {
   private readonly provider = new ExplorerProvider();
   private readonly tree: TreeView<ExplorerNode>;
@@ -359,23 +202,23 @@ class Explorer implements Disposable {
       enableFilter: true,
       actions: this.viewActions(),
     });
-    const treeDecorations = new TreeDecorationRenderer(
-      this.tree,
-      this.provider,
-    );
 
     context.subscriptions.push(
       container,
       view,
       this.tree,
       this.provider,
-      treeDecorations,
       this.tree.onDidExpandElement(({ element }) =>
         this.provider.setExpanded(element, true),
       ),
       this.tree.onDidCollapseElement(({ element }) =>
         this.provider.setExpanded(element, false),
       ),
+      workspace.onDidChangeConfiguration((event) => {
+        if (event.affectsConfiguration("explorer.icons.file")) {
+          this.refresh();
+        }
+      }),
       commands.registerCommand("explorer.show", () =>
         this.ui.showContainer("explorer"),
       ),

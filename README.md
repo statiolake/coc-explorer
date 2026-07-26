@@ -5,10 +5,9 @@ Explorer View Container selected from the primary Activity Bar provided by
 `@statiolake/coc-ui`, with open, split, reveal,
 root-change, refresh, and filesystem actions. Files open and folders toggle on
 single click; right click opens the item's context action menu through
-`@statiolake/coc-ui`. Folders use compact disclosure markers instead of folder
-icons, while files use one generic configurable icon. Nested items have
-vertical indent guides by default; configure them with
-`explorer.indentGuides.enabled` and `explorer.indentGuides.character`. Focusing
+`@statiolake/coc-ui`. Indent guides and folder disclosure markers come from
+coc-ui's common tree decoration (`ui.tree.*`). Explorer only supplies filesystem
+`TreeItem`s and an optional generic file icon via `explorer.icons.file`. Focusing
 the Explorer reveals the most recently focused file by default; set
 `explorer.revealOnFocus` to `false` to disable this behavior.
 
