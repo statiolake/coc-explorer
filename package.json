@@ -1,6 +1,6 @@
 {
   "name": "@statiolake/coc-explorer",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "A lean filesystem explorer for coc.nvim view containers",
   "author": "statiolake",
   "license": "MIT",
