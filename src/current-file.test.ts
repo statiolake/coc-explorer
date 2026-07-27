@@ -5,6 +5,7 @@ import {
   isNormalFileCandidate,
   nextRememberedFile,
   resolveEditorFile,
+  resolveFileAtExplorerFocus,
 } from "./current-file";
 
 const fileA = {
@@ -53,7 +54,7 @@ describe("current-file policy", () => {
     assert.equal(resolveEditorFile("/proj/old.ts", fileB, fileA), "/proj/b.ts");
   });
 
-  it("prefers alternate window file over remembered when Explorer has focus", () => {
+  it("prefers alternate window file over remembered when active is CocTree", () => {
     assert.equal(
       resolveEditorFile("/proj/stale.ts", cocTree, fileB),
       "/proj/b.ts",
@@ -91,6 +92,30 @@ describe("current-file policy", () => {
     assert.deepEqual(
       candidateFromUri("", { scheme: "file", fsPath: "/proj/a.ts" }),
       { buftype: "", scheme: "file", fsPath: "/proj/a.ts" },
+    );
+  });
+});
+
+describe("resolveFileAtExplorerFocus", () => {
+  it("does not use stale Coc active A; direct editor B wins", () => {
+    // Explicit reveal would wrongly prefer stale Coc active A over editor B:
+    assert.equal(resolveEditorFile("/proj/a.ts", fileA, fileB), "/proj/a.ts");
+    // Focus policy never takes Coc active as input — only the direct editor:
+    assert.equal(resolveFileAtExplorerFocus("/proj/a.ts", fileB), "/proj/b.ts");
+  });
+
+  it("falls back to remembered when the direct candidate is invalid or missing", () => {
+    assert.equal(
+      resolveFileAtExplorerFocus("/proj/a.ts", cocTree),
+      "/proj/a.ts",
+    );
+    assert.equal(
+      resolveFileAtExplorerFocus("/proj/a.ts", untitled),
+      "/proj/a.ts",
+    );
+    assert.equal(
+      resolveFileAtExplorerFocus("/proj/a.ts", undefined),
+      "/proj/a.ts",
     );
   });
 });

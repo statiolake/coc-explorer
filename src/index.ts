@@ -22,6 +22,7 @@ import {
   candidateFromUri,
   nextRememberedFile,
   resolveEditorFile,
+  resolveFileAtExplorerFocus,
 } from "./current-file";
 import {
   ActivationCoalescer,
@@ -668,17 +669,13 @@ class Explorer implements Disposable {
   }
 
   /**
-   * Prefer an active normal file buffer; else the alternate window's normal
-   * file (covers BufEnter lag); else the remembered editor path.
+   * Focus-time file to reveal. Never uses Coc cursor/"active" document — it can
+   * remain on the previous editor after the tree is focused. Prefer Neovim's
+   * direct alternate editor window; else remembered.
    */
   private async resolveFileAtExplorerFocus(): Promise<string | undefined> {
-    const document = workspace.getDocument(events.cursor.bufnr);
-    const active = document
-      ? candidateFromUri(document.buftype, Uri.parse(document.uri))
-      : undefined;
-    return resolveEditorFile(
+    return resolveFileAtExplorerFocus(
       this.rememberedFile,
-      active,
       await this.readAlternateWindowCandidate(),
     );
   }

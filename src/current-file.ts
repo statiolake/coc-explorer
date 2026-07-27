@@ -30,9 +30,9 @@ export function nextRememberedFile(
 }
 
 /**
- * Prefer a normal file buffer when one is focused; otherwise the alternate
- * (previous) window's normal file if present; otherwise the last remembered
- * editor file. CocTree / UI candidates never win.
+ * Explicit reveal: prefer a normal file buffer when one is focused; else the
+ * alternate window's normal file; else the last remembered editor file.
+ * CocTree / UI candidates never win.
  */
 export function resolveEditorFile(
   remembered: string | undefined,
@@ -41,6 +41,20 @@ export function resolveEditorFile(
 ): string | undefined {
   if (isNormalFileCandidate(active)) return active.fsPath;
   if (isNormalFileCandidate(alternate)) return alternate.fsPath;
+  return remembered;
+}
+
+/**
+ * Explorer-focus reveal: called only after live focus is verified as the
+ * Explorer tree, so Coc's cursor/"active" document must not be consulted — it
+ * can still point at the previous editor. Prefer the direct normal
+ * alternate/editor-window candidate; else remembered.
+ */
+export function resolveFileAtExplorerFocus(
+  remembered: string | undefined,
+  editorWindow: BufferFileCandidate | undefined,
+): string | undefined {
+  if (isNormalFileCandidate(editorWindow)) return editorWindow.fsPath;
   return remembered;
 }
 
